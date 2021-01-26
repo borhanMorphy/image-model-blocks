@@ -1,31 +1,35 @@
 import torch
 import torch.nn as nn
-from ..utils import inception_conv,calculate_same_padding
+from typing import Tuple
 
-class Inception3A(nn.Module):
-    def __init__(self, infeatures:int):
+from ..utils import get_same_padding,same_padding_conv
+
+class InceptionV1(nn.Module):
+
+    def __init__(self, infeatures:int, f_1x1:int, f_3x3:Tuple[int,int],
+            f_5x5:Tuple[int,int], f_mp3x3:int):
         super().__init__()
 
         self.branch_1x1 = nn.Sequential(
-            inception_conv(1, infeatures, 64),
+            same_padding_conv(1, infeatures, f_1x1),
             nn.ReLU()
         )
         self.branch_3x3 = nn.Sequential(
-            inception_conv(1, infeatures, 96),
+            same_padding_conv(1, infeatures, f_3x3[0]),
             nn.ReLU(),
-            inception_conv(3, 96, 128),
+            same_padding_conv(3, f_3x3[0], f_3x3[1]),
             nn.ReLU()
         )
         self.branch_5x5 = nn.Sequential(
-            inception_conv(1, infeatures, 16),
+            same_padding_conv(1, infeatures, f_5x5[0]),
             nn.ReLU(),
-            inception_conv(3, 16, 32),
+            same_padding_conv(5, f_5x5[0], f_5x5[1]),
             nn.ReLU()
         )
         self.branch_mp3x3 = nn.Sequential(
             nn.MaxPool2d(kernel_size=3, stride=1,
-                padding=calculate_same_padding(3), ceil_mode=True),
-            inception_conv(1, infeatures, 32),
+                padding=get_same_padding(3), ceil_mode=True),
+            same_padding_conv(1, infeatures, f_mp3x3),
             nn.ReLU()
         )
 
@@ -36,20 +40,20 @@ class Inception3A(nn.Module):
             x (torch.Tensor): (B x C x H X W)
 
         Returns:
-            torch.Tensor: (B x 256 x H x W)
+            torch.Tensor: (B x [f_1x1 + f_3x3[1] + f_5x5[1] + f_mp3x3] x H x W)
         """
-        # (B x C x H x W) => (B x 64 x H x W)
+        # (B x C x H x W) => (B x f_1x1 x H x W)
         f1 = self.branch_1x1(x)
 
-        # (B x C x H x W) => (B x 128 x H x W)
+        # (B x C x H x W) => (B x f_3x3[1] x H x W)
         f2 = self.branch_3x3(x)
 
-        # (B x C x H x W) => (B x 32 x H x W)
+        # (B x C x H x W) => (B x f_5x5[1] x H x W)
         f3 = self.branch_5x5(x)
 
-        # (B x C x H x W) => (B x 32 x H x W)
+        # (B x C x H x W) => (B x f_mp3x3 x H x W)
         f4 = self.branch_mp3x3(x)
 
         # depthwise concatination
-        # B x [64 + 128 + 32 + 32] x H x W => (B x 256 x H x W)
+        # B x [f_1x1 + f_3x3[1] + f_5x5[1] + f_mp3x3] x H x W => (B x (f_1x1 + f_3x3[1] + f_5x5[1] + f_mp3x3) x H x W)
         return torch.cat([f1,f2,f3,f4], dim=1)
